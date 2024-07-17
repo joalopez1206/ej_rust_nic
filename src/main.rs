@@ -60,8 +60,7 @@ fn recv_without_dig(){
 }   
 
 fn recv_dig() {
-    let key = b"7niAlAtSA70XRNgvlAB5m80ywDA=";
-    let key_bytes = base64::prelude::BASE64_STANDARD.decode(key).unwrap();
+    let key_bytes = base64::prelude::BASE64_STANDARD.decode(KEY).unwrap();
     let mut lista_alg = vec![];
     lista_alg.push((String::from("hmac-sha1"),true));
 
@@ -119,5 +118,6 @@ fn recv_dig() {
     }
 
 fn main() {
+    //recv_dig();
     recv_without_dig()
 }
