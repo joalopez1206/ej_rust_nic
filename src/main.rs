@@ -1,13 +1,63 @@
 use std::net::UdpSocket;
-use std::fs::File;
-use std::io::prelude::*;
 use std::time::SystemTime;
+use std::vec;
+use dns_rust::domain_name::DomainName;
 use dns_rust::message::rdata::Rdata;
 use dns_rust::message::DnsMessage;
+use dns_rust::message::{rrtype::Rrtype, rclass::Rclass};
 use dns_rust;
 use base64;
-use base64::{Engine as _};
-use dns_rust::tsig::process_tsig;
+use base64::Engine as _;
+use dns_rust::tsig::{process_tsig, sign_tsig, TsigAlgorithm};
+const KEY: &[u8; 28] = b"7niAlAtSA70XRNgvlAB5m80ywDA=";
+
+fn generate_tsig_a_query(domain :DomainName, id: u16, key_name: String) -> (DnsMessage, Vec<u8>) {
+    let mut dnsmsg = DnsMessage::new_query_message(domain, Rrtype::A, Rclass::IN, 0, true, id);
+    let alg_name = TsigAlgorithm::HmacSha1;
+    let time = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
+    let digest = sign_tsig(&mut dnsmsg, KEY, alg_name, 300, time, key_name, vec![]);
+    return (dnsmsg, digest);
+}
+
+
+fn recv_without_dig(){
+    let key_bytes = base64::prelude::BASE64_STANDARD.decode(KEY).unwrap();
+    let mut lista_alg = vec![];
+    lista_alg.push((String::from("hmac-sha1"),true));
+    let domain_to_query = DomainName::new_from_str("ns1.nictest");
+    let shared_key_name = "weird.nictest".to_string();
+    let socket_udp = UdpSocket::bind("192.168.100.2:8890").expect("Failed to bind to address");
+    let (dns_msg, mac) = generate_tsig_a_query(domain_to_query, 6502, shared_key_name.clone());
+
+    let time = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
+    let (val, err) = process_tsig(&dns_msg, &key_bytes, shared_key_name.clone(), time, lista_alg.clone(), vec![]);
+
+    if !val {
+        println!("Error en la validacion del mensaje");
+        println!("{:?}", err);
+    }
+
+
+    println!("Enviando el mensaje al servidor");
+    let test_bytes = dns_msg.to_bytes();
+    socket_udp.send_to(&test_bytes, "192.168.100.3:53").unwrap();
+
+    let mut buf = [0; 2000];
+    let (s, _) = socket_udp.recv_from(& mut buf).unwrap();
+    let bytes = &buf[0..s].to_vec();
+    let response = DnsMessage::from_bytes(&bytes).expect("Parseo mal!");
+    
+    let time = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
+    let (val, err) = process_tsig(&response, &key_bytes, shared_key_name.clone(), time, lista_alg, mac);
+
+
+    if !val {
+        println!("Error en la validacion del mensaje");
+        println!("{:?}", err);
+    }
+
+    println!("OK!");
+}   
 
 fn recv_dig() {
     let key = b"7niAlAtSA70XRNgvlAB5m80ywDA=";
@@ -51,8 +101,8 @@ fn recv_dig() {
     let bytes2 = &buf2[0..s2].to_vec();
     let dnsmsg2 = DnsMessage::from_bytes(&bytes2[0..s2]).expect("Parseo mal!");
 
-    let mut response_dns_tsig_file = File::create("response_tsig_cliente.dns").unwrap();
-    response_dns_tsig_file.write_all(bytes2).expect("Error al escribir el archivo");
+    // let mut response_dns_tsig_file = File::create("response_tsig_cliente.dns").unwrap();
+    // response_dns_tsig_file.write_all(bytes2).expect("Error al escribir el archivo");
 
     let parsed_bytes = dnsmsg2.to_bytes();
 
@@ -69,5 +119,5 @@ fn recv_dig() {
     }
 
 fn main() {
-    recv_dig()
+    recv_without_dig()
 }
