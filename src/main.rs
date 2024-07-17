@@ -11,11 +11,14 @@ use base64::Engine as _;
 use dns_rust::tsig::{process_tsig, sign_tsig, TsigAlgorithm};
 const KEY: &[u8; 28] = b"7niAlAtSA70XRNgvlAB5m80ywDA=";
 
-fn generate_tsig_a_query(domain :DomainName, id: u16, key_name: String) -> (DnsMessage, Vec<u8>) {
+fn generate_tsig_a_query(domain :DomainName, id: u16, key_name: String, key: &[u8]) -> (DnsMessage, Vec<u8>) {
     let mut dnsmsg = DnsMessage::new_query_message(domain, Rrtype::A, Rclass::IN, 0, true, id);
+    let mut header = dnsmsg.get_header();
+    header.set_ad(true);
+    dnsmsg.set_header(header);
     let alg_name = TsigAlgorithm::HmacSha1;
     let time = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
-    let digest = sign_tsig(&mut dnsmsg, KEY, alg_name, 300, time, key_name, vec![]);
+    let digest = sign_tsig(&mut dnsmsg, key, alg_name, 300, time, key_name, vec![]);
     return (dnsmsg, digest);
 }
 
@@ -27,11 +30,11 @@ fn recv_without_dig(){
     let domain_to_query = DomainName::new_from_str("ns1.nictest");
     let shared_key_name = "weird.nictest".to_string();
     let socket_udp = UdpSocket::bind("192.168.100.2:8890").expect("Failed to bind to address");
-    let (dns_msg, mac) = generate_tsig_a_query(domain_to_query, 6502, shared_key_name.clone());
+    let (dns_msg, mac) = generate_tsig_a_query(domain_to_query, 6502, shared_key_name.clone(), &key_bytes);
 
     let time = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
     let (val, err) = process_tsig(&dns_msg, &key_bytes, shared_key_name.clone(), time, lista_alg.clone(), vec![]);
-
+    //println!("{:#?}", &dns_msg);
     if !val {
         println!("Error en la validacion del mensaje");
         println!("{:?}", err);
@@ -78,6 +81,7 @@ fn recv_dig() {
 
     println!("Verificando la query del cliente!");
     println!("bool: {:?} tsig_err: {:#?}", a, b);
+    println!("{:#?}",&dnsmsg);
     println!("-----------------------------------------------------");
 
     // println!("{:#?}", dnsmsg.get_header());
@@ -115,7 +119,7 @@ fn recv_dig() {
     let (a, b)= process_tsig(&dnsmsg2,  &key_bytes, "weird.nictest".to_string(), time, lista_alg, mac);
     println!("Verificando la respuesta del servidor");
     println!("bool: {:?} tsig_err: {:#?}", a, b);
-    }
+}
 
 fn main() {
     //recv_dig();
