@@ -9,6 +9,19 @@ use dns_rust;
 use base64;
 use base64::Engine as _;
 use dns_rust::tsig::{process_tsig, sign_tsig, TsigAlgorithm};
+use std::io::{stdin, stdout, Write};
+
+pub fn input(prompt: &str) -> String {
+    print!("{}", prompt);
+    let mut input = String::new();
+
+    stdout().flush().expect("Failed to flush stdout!");
+    stdin().read_line(&mut input).expect("Failed to read line");
+
+    input.pop();
+
+    return input;
+}
 const KEY: &[u8; 28] = b"7niAlAtSA70XRNgvlAB5m80ywDA=";
 
 fn generate_tsig_a_query(domain :DomainName, id: u16, key_name: String, key: &[u8]) -> (DnsMessage, Vec<u8>) {
@@ -30,26 +43,30 @@ fn recv_without_dig(){
     let domain_to_query = DomainName::new_from_str("ns1.nictest");
     let shared_key_name = "weird.nictest".to_string();
     let socket_udp = UdpSocket::bind("192.168.100.2:8890").expect("Failed to bind to address");
+    input("Generemos un mensaje con TSIG, presione enter para continuar");
     let (dns_msg, mac) = generate_tsig_a_query(domain_to_query, 6502, shared_key_name.clone(), &key_bytes);
-
+    
     let time = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
     let (val, err) = process_tsig(&dns_msg, &key_bytes, shared_key_name.clone(), time, lista_alg.clone(), vec![]);
-    //println!("{:#?}", &dns_msg);
+    println!("{}", &dns_msg);
     if !val {
         println!("Error en la validacion del mensaje");
         println!("{:?}", err);
+        panic!("Error en la validacion del mensaje");
     }
-
-
+    println!("Validacion de la peticion OK! tsig_err {:?}", err);
+    input("Presione enter para enviar el mensaje al servidor");
     println!("Enviando el mensaje al servidor");
     let test_bytes = dns_msg.to_bytes();
     socket_udp.send_to(&test_bytes, "192.168.100.3:53").unwrap();
 
     let mut buf = [0; 2000];
     let (s, _) = socket_udp.recv_from(& mut buf).unwrap();
+    println!("Recibiendo respuesta del servidor");
     let bytes = &buf[0..s].to_vec();
     let response = DnsMessage::from_bytes(&bytes).expect("Parseo mal!");
-    
+    println!("{}", &response);
+    input("Presione enter para validar la respuesta del servidor");
     let time = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
     let (val, err) = process_tsig(&response, &key_bytes, shared_key_name.clone(), time, lista_alg, mac);
 
@@ -59,7 +76,7 @@ fn recv_without_dig(){
         println!("{:?}", err);
     }
 
-    println!("OK!");
+    println!("Validacion de la respuesta OK! tsig_err {:?}", err);
 }   
 
 fn recv_dig() {
